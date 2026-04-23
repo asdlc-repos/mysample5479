@@ -1,0 +1,40 @@
+{
+  "overview": "A simple two-component todo application: a Go backend service exposing a REST API for task CRUD and filtering, and a React frontend SPA that consumes it. The frontend communicates with the backend via HTTPS/JSON.",
+  "requirements": [
+    "Users can create tasks with title, optional category, and optional due date",
+    "Users can mark tasks complete/incomplete",
+    "Users can edit and delete tasks",
+    "Users can list all tasks",
+    "Users can filter tasks by category",
+    "Users can filter tasks by due-date timeframe (e.g. today, this week, overdue)",
+    "All components expose a /health endpoint",
+    "Data persists in-memory for simplicity (single-user demo)"
+  ],
+  "components": [
+    {
+      "name": "task-api",
+      "componentType": "service",
+      "language": "Go",
+      "dependsOn": [],
+      "entrypoint": "deployment/service",
+      "buildpack": "docker",
+      "appPath": "/task-api",
+      "openAPISpec": "openapi: 3.0.3\ninfo:\n  title: Task API\n  version: 1.0.0\npaths:\n  /health:\n    get:\n      responses:\n        '200':\n          description: OK\n  /tasks:\n    get:\n      parameters:\n        - name: category\n          in: query\n          schema: { type: string }\n        - name: timeframe\n          in: query\n          schema: { type: string, enum: [today, week, overdue, all] }\n      responses:\n        '200':\n          description: List\n          content:\n            application/json:\n              schema:\n                type: array\n                items: { $ref: '#/components/schemas/Task' }\n    post:\n      requestBody:\n        required: true\n        content:\n          application/json:\n            schema: { $ref: '#/components/schemas/TaskInput' }\n      responses:\n        '201':\n          description: Created\n          content:\n            application/json:\n              schema: { $ref: '#/components/schemas/Task' }\n  /tasks/{id}:\n    parameters:\n      - name: id\n        in: path\n        required: true\n        schema: { type: string }\n    get:\n      responses:\n        '200':\n          description: OK\n          content:\n            application/json:\n              schema: { $ref: '#/components/schemas/Task' }\n        '404': { description: Not found }\n    put:\n      requestBody:\n        required: true\n        content:\n          application/json:\n            schema: { $ref: '#/components/schemas/TaskInput' }\n      responses:\n        '200':\n          description: Updated\n          content:\n            application/json:\n              schema: { $ref: '#/components/schemas/Task' }\n    delete:\n      responses:\n        '204': { description: Deleted }\n  /tasks/{id}/complete:\n    parameters:\n      - name: id\n        in: path\n        required: true\n        schema: { type: string }\n    post:\n      requestBody:\n        content:\n          application/json:\n            schema:\n              type: object\n              properties:\n                completed: { type: boolean }\n      responses:\n        '200':\n          description: OK\n          content:\n            application/json:\n              schema: { $ref: '#/components/schemas/Task' }\ncomponents:\n  schemas:\n    Task:\n      type: object\n      properties:\n        id: { type: string }\n        title: { type: string }\n        category: { type: string, nullable: true }\n        dueDate: { type: string, format: date, nullable: true }\n        completed: { type: boolean }\n        createdAt: { type: string, format: date-time }\n    TaskInput:\n      type: object\n      required: [title]\n      properties:\n        title: { type: string }\n        category: { type: string, nullable: true }\n        dueDate: { type: string, format: date, nullable: true }\n        completed: { type: boolean }\n",
+      "componentAgentInstructions": "Implement a Go backend using net/http listening on port 9090. Provide endpoints described in OpenAPI spec for managing tasks. Use an in-memory map[string]Task with a sync.RWMutex for thread safety; generate IDs via crypto/rand or uuid. Endpoints: GET /health returns 200 'ok'; GET /tasks supports query params category (exact match, case-insensitive) and timeframe ('today' = dueDate == today, 'week' = dueDate within next 7 days inclusive of today, 'overdue' = dueDate \u003c today and not completed, 'all' or empty = no filter); POST /tasks validates non-empty title, returns 201 with created task; GET/PUT/DELETE /tasks/{id} with 404 if missing; POST /tasks/{id}/complete toggles or sets completed flag from body. Enable permissive CORS (Access-Control-Allow-Origin: *, methods GET,POST,PUT,DELETE,OPTIONS, headers Content-Type) and handle OPTIONS preflight. Return JSON with proper Content-Type. Log requests to stdout. Provide Dockerfile (multi-stage golang:1.22 build, distroless or alpine runtime) exposing 9090."
+    },
+    {
+      "name": "task-web",
+      "componentType": "web-app",
+      "language": "TypeScript / React",
+      "dependsOn": [
+        "task-api"
+      ],
+      "entrypoint": "deployment/web-application",
+      "buildpack": "docker",
+      "appPath": "/task-web",
+      "openAPISpec": "openapi: 3.0.3\ninfo:\n  title: Task Web\n  version: 1.0.0\npaths:\n  /health:\n    get:\n      responses:\n        '200':\n          description: OK\n",
+      "componentAgentInstructions": "Build a React + TypeScript SPA using Vite. Provide a single-page UI to: create tasks (title, optional category, optional dueDate), list all tasks, mark complete via checkbox, edit (inline or modal), delete, and filter by category dropdown and timeframe (All/Today/This Week/Overdue). Use fetch against the backend base URL configured via runtime env (window.__ENV__.API_URL injected by entrypoint script reading TASK_API_URL env var; fall back to '/api'). Show tasks grouped or sorted by due date with completed tasks visually de-emphasized. Use clean modern styling (CSS modules or Tailwind). Include a /health route or static file returning 200 served by nginx. Dockerize with multi-stage: node:20 build → nginx:alpine serve on port 8080; nginx config should serve SPA fallback to index.html and expose /health returning 200."
+    }
+  ],
+  "sourceSpec": "spec-v1"
+}
