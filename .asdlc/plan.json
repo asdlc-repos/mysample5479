@@ -1,0 +1,70 @@
+{
+  "strategy": "Bottom-Up",
+  "overview": "Topological sort yields two phases: the independent Go backend first, then the React frontend that depends on it. This bottom-up approach ensures the API contract is available before the UI is wired up.",
+  "phases": [
+    {
+      "phase": 1,
+      "name": "Backend Foundation",
+      "description": "Build the independent Task API service that provides all CRUD and filtering endpoints.",
+      "components": [
+        {
+          "name": "task-api",
+          "componentType": "service",
+          "language": "Go",
+          "deployment": "Docker",
+          "responsibilities": [
+            "Expose REST endpoints for task CRUD operations",
+            "Support filtering tasks by category and timeframe (today, week, overdue, all)",
+            "Toggle task completion state",
+            "Persist tasks in a thread-safe in-memory store",
+            "Expose /health endpoint and permissive CORS for browser clients"
+          ],
+          "architectureContext": "Standalone Go HTTP service on port 9090 that serves as the sole backend for the task-web SPA. It has no upstream dependencies and owns the task data model.",
+          "keyConsiderations": [
+            "Use sync.RWMutex around the in-memory map[string]Task for safe concurrent access",
+            "Handle OPTIONS preflight and set permissive CORS headers on every response",
+            "Timeframe filtering must compute today/week boundaries correctly and exclude completed for 'overdue'",
+            "Validate non-empty title on POST/PUT and return proper 400/404 codes",
+            "Multi-stage Dockerfile (golang:1.22 → distroless/alpine) exposing 9090"
+          ],
+          "apiContract": "openapi: 3.0.3\ninfo:\n  title: Task API\n  version: 1.0.0\npaths:\n  /health:\n    get:\n      responses:\n        '200':\n          description: OK\n  /tasks:\n    get:\n      parameters:\n        - name: category\n          in: query\n          schema: { type: string }\n        - name: timeframe\n          in: query\n          schema: { type: string, enum: [today, week, overdue, all] }\n      responses:\n        '200':\n          description: List\n          content:\n            application/json:\n              schema:\n                type: array\n                items: { $ref: '#/components/schemas/Task' }\n    post:\n      requestBody:\n        required: true\n        content:\n          application/json:\n            schema: { $ref: '#/components/schemas/TaskInput' }\n      responses:\n        '201':\n          description: Created\n          content:\n            application/json:\n              schema: { $ref: '#/components/schemas/Task' }\n  /tasks/{id}:\n    parameters:\n      - name: id\n        in: path\n        required: true\n        schema: { type: string }\n    get:\n      responses:\n        '200':\n          description: OK\n          content:\n            application/json:\n              schema: { $ref: '#/components/schemas/Task' }\n        '404': { description: Not found }\n    put:\n      requestBody:\n        required: true\n        content:\n          application/json:\n            schema: { $ref: '#/components/schemas/TaskInput' }\n      responses:\n        '200':\n          description: Updated\n          content:\n            application/json:\n              schema: { $ref: '#/components/schemas/Task' }\n    delete:\n      responses:\n        '204': { description: Deleted }\n  /tasks/{id}/complete:\n    parameters:\n      - name: id\n        in: path\n        required: true\n        schema: { type: string }\n    post:\n      requestBody:\n        content:\n          application/json:\n            schema:\n              type: object\n              properties:\n                completed: { type: boolean }\n      responses:\n        '200':\n          description: OK\n          content:\n            application/json:\n              schema: { $ref: '#/components/schemas/Task' }\ncomponents:\n  schemas:\n    Task:\n      type: object\n      properties:\n        id: { type: string }\n        title: { type: string }\n        category: { type: string, nullable: true }\n        dueDate: { type: string, format: date, nullable: true }\n        completed: { type: boolean }\n        createdAt: { type: string, format: date-time }\n    TaskInput:\n      type: object\n      required: [title]\n      properties:\n        title: { type: string }\n        category: { type: string, nullable: true }\n        dueDate: { type: string, format: date, nullable: true }\n        completed: { type: boolean }\n",
+          "dependencies": []
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "name": "Frontend SPA",
+      "description": "Build the React SPA once the backend API is available for integration.",
+      "components": [
+        {
+          "name": "task-web",
+          "componentType": "web-app",
+          "language": "TypeScript / React",
+          "deployment": "Docker",
+          "responsibilities": [
+            "Provide UI for creating, editing, completing, and deleting tasks",
+            "Display tasks with sorting/grouping by due date and de-emphasize completed",
+            "Filter tasks by category and timeframe",
+            "Call the task-api backend using runtime-configurable base URL",
+            "Serve SPA via nginx with /health endpoint"
+          ],
+          "architectureContext": "React+TypeScript SPA served by nginx. It is the sole consumer of task-api, calling its REST endpoints over HTTPS/JSON from the browser.",
+          "keyConsiderations": [
+            "Runtime config via window.__ENV__.API_URL injected from TASK_API_URL env var at container start",
+            "nginx must fallback to index.html for SPA routing and expose /health returning 200",
+            "Use fetch with proper error handling and optimistic UI for completion toggles",
+            "Multi-stage Docker: node:20 build → nginx:alpine serving port 8080",
+            "Rely on backend CORS; ensure Content-Type: application/json on mutating requests"
+          ],
+          "apiContract": "openapi: 3.0.3\ninfo:\n  title: Task Web\n  version: 1.0.0\npaths:\n  /health:\n    get:\n      responses:\n        '200':\n          description: OK\n",
+          "dependencies": [
+            "task-api"
+          ]
+        }
+      ]
+    }
+  ],
+  "sourceSpec": "spec-v1",
+  "sourceDesign": "design-v1"
+}
